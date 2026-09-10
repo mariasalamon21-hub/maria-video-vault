@@ -373,52 +373,142 @@ async function uploadVideo() {
         response.status === 201
       ) {
 
-        progress.value = 100;
 
+async function uploadVideo() {
+
+  const input = document.getElementById("fileInput");
+  const status = document.getElementById("status");
+  const progress = document.getElementById("progress");
+
+  if (!input.files.length) {
+    alert("Choose a video first.");
+    return;
+  }
+
+  if (!accessToken || !folderId) {
+    alert("Please sign in first.");
+    return;
+  }
+
+  const file = input.files[0];
+
+  status.textContent = "Starting upload...";
+  progress.value = 0;
+
+  try {
+
+    const metadata = {
+      name: file.name,
+      mimeType: file.type || "application/octet-stream",
+      parents: [folderId]
+    };
+
+    const response = await fetch(
+      "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
+      {
+        method: "POST",
+
+        headers: {
+          "Authorization": "Bearer " + accessToken,
+          "Content-Type": "application/json",
+          "X-Upload-Content-Type":
+            file.type || "application/octet-stream",
+          "X-Upload-Content-Length":
+            String(file.size)
+        },
+
+        body: JSON.stringify(metadata)
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        "Google Drive error " +
+        response.status +
+        ": " +
+        errorText
+      );
+    }
+
+    const uploadUrl = response.headers.get("Location");
+
+    if (!uploadUrl) {
+      throw new Error(
+        "Google did not return an upload URL."
+      );
+    }
+
+    const chunkSize = 8 * 1024 * 1024;
+
+    let start = 0;
+
+    while (start < file.size) {
+
+      const end =
+        Math.min(start + chunkSize, file.size);
+
+      const chunk = file.slice(start, end);
+
+      const uploadResponse = await fetch(
+        uploadUrl,
+        {
+          method: "PUT",
+
+          headers: {
+            "Content-Length": String(chunk.size),
+            "Content-Range":
+              `bytes ${start}-${end - 1}/${file.size}`
+          },
+
+          body: chunk
+        }
+      );
+
+      if (
+        uploadResponse.status === 200 ||
+        uploadResponse.status === 201
+      ) {
+
+        progress.value = 100;
         status.textContent =
           "✅ Upload complete!";
 
-        break;
+        await loadVideos();
+        return;
       }
 
-      if (response.status === 308) {
+      if (uploadResponse.status === 308) {
 
         const range =
-          response.headers.get("Range");
+          uploadResponse.headers.get("Range");
 
         if (range) {
-
           start =
-            parseInt(
-              range.split("-")[1]
-            ) + 1;
-
+            parseInt(range.split("-")[1]) + 1;
         } else {
-
           start = end;
         }
 
-        const percent =
-          Math.floor(
-            (start / file.size) * 100
-          );
-
         progress.value =
-          percent;
+          Math.round((start / file.size) * 100);
 
         status.textContent =
-          `Uploading... ${percent}%`;
+          `Uploading... ${progress.value}%`;
 
       } else {
 
         const errorText =
-          await response.text();
+          await uploadResponse.text();
 
-        throw new Error(errorText);
+        throw new Error(
+          "Upload error " +
+          uploadResponse.status +
+          ": " +
+          errorText
+        );
       }
     }
-
-    loadVideos();
 
   } catch (error) {
 
@@ -429,7 +519,6 @@ async function uploadVideo() {
       error.message;
   }
 }
-
 
 /* =========================
    LIST VIDEOS
