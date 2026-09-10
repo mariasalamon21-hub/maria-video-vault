@@ -3,24 +3,26 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
   <title>Maria Video Vault</title>
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 
   <style>
     body {
-      font-family: Arial, sans-serif;
-      max-width: 800px;
-      margin: 40px auto;
+      margin: 0;
       padding: 20px;
-      background: #f5f5f5;
+      font-family: Arial, sans-serif;
+      background: #f4f4f4;
     }
 
-    .box {
+    .container {
+      max-width: 800px;
+      margin: auto;
       background: white;
       padding: 25px;
-      border-radius: 15px;
-      box-shadow: 0 4px 15px rgba(0,0,0,.08);
+      border-radius: 16px;
+      box-shadow: 0 4px 20px rgba(0,0,0,.08);
     }
 
     h1 {
@@ -28,11 +30,12 @@
     }
 
     button {
-      padding: 10px 16px;
       border: 0;
       border-radius: 8px;
-      cursor: pointer;
+      padding: 11px 18px;
       margin: 5px;
+      cursor: pointer;
+      font-size: 15px;
     }
 
     #uploadBtn {
@@ -40,137 +43,217 @@
       color: white;
     }
 
+    #refreshBtn {
+      background: #ddd;
+    }
+
     .video {
-      padding: 12px;
-      margin: 10px 0;
       background: #f1f1f1;
+      padding: 15px;
+      margin: 12px 0;
       border-radius: 10px;
     }
 
-    .progress {
-      width: 100%;
-      height: 20px;
-      margin-top: 15px;
+    .video button {
+      background: white;
     }
 
     #status {
-      margin-top: 15px;
+      margin: 15px 0;
       font-weight: bold;
+      word-break: break-word;
+    }
+
+    progress {
+      width: 100%;
+      height: 20px;
+    }
+
+    #app {
+      display: none;
     }
 
     #fileInput {
-      margin-top: 20px;
+      margin: 20px 0;
+      max-width: 100%;
     }
   </style>
 </head>
 
 <body>
 
-<div class="box">
+<div class="container">
 
   <h1>🎥 Maria Video Vault</h1>
 
+  <!-- LOGIN -->
+
   <div id="loginSection">
-    <p>Sign in with your Google account to access your videos.</p>
 
-    <div id="g_id_onload"
-         data-client_id="687022968022-v5l47s84jtjgj0se3dp10b995t4q4doe.apps.googleusercontent.com"
-         data-callback="handleCredentialResponse"
-         data-auto_prompt="false">
+    <p>
+      Sign in with Google to access your Google Drive videos.
+    </p>
+
+    <div
+      id="g_id_onload"
+      data-client_id="687022968022-v5l47s84jtjgj0se3dp10b995t4q4doe.apps.googleusercontent.com"
+      data-callback="googleLogin"
+      data-auto_prompt="false">
     </div>
 
-    <div class="g_id_signin"
-         data-type="standard"
-         data-size="large"
-         data-theme="outline">
+    <div
+      class="g_id_signin"
+      data-type="standard"
+      data-size="large"
+      data-theme="outline">
     </div>
+
   </div>
 
-  <div id="app" style="display:none;">
+
+  <!-- APP -->
+
+  <div id="app">
 
     <p id="userInfo"></p>
 
-    <input type="file" id="fileInput" accept="video/*">
+    <hr>
+
+    <h2>Upload Video</h2>
+
+    <input
+      id="fileInput"
+      type="file"
+      accept="video/*">
 
     <br>
 
-    <button id="uploadBtn">Upload Video</button>
+    <button id="uploadBtn">
+      Upload Video
+    </button>
 
-    <progress id="progress" class="progress" value="0" max="100"></progress>
+    <progress
+      id="progress"
+      value="0"
+      max="100">
+    </progress>
 
-    <div id="status"></div>
+    <div id="status">
+      Waiting...
+    </div>
 
     <hr>
 
     <h2>My Videos</h2>
 
-    <button onclick="loadVideos()">🔄 Refresh</button>
+    <button id="refreshBtn">
+      🔄 Refresh
+    </button>
 
-    <div id="videoList"></div>
+    <div id="videoList">
+      Loading...
+    </div>
 
   </div>
 
 </div>
 
+
 <script>
 
-const CLIENT_ID = "687022968022-v5l47s84jtjgj0se3dp10b995t4q4doe.apps.googleusercontent.com";
+/* =====================================================
+   SETTINGS
+===================================================== */
 
-const SCOPES =
+const CLIENT_ID =
+  "687022968022-v5l47s84jtjgj0se3dp10b995t4q4doe.apps.googleusercontent.com";
+
+const DRIVE_SCOPE =
   "https://www.googleapis.com/auth/drive.file";
+
+const FOLDER_NAME =
+  "Maria Video Vault";
 
 let accessToken = null;
 let folderId = null;
 
 
-/* =========================
+/* =====================================================
+   ELEMENTS
+===================================================== */
+
+const loginSection =
+  document.getElementById("loginSection");
+
+const app =
+  document.getElementById("app");
+
+const statusBox =
+  document.getElementById("status");
+
+const progress =
+  document.getElementById("progress");
+
+const videoList =
+  document.getElementById("videoList");
+
+
+/* =====================================================
    GOOGLE LOGIN
-========================= */
+===================================================== */
 
-function handleCredentialResponse(response) {
+function googleLogin(response) {
 
-  // Decode Google login response
-  const data = JSON.parse(
-    atob(
-      response.credential.split('.')[1]
-        .replace(/-/g, '+')
-        .replace(/_/g, '/')
-    )
-  );
+  statusBox.textContent =
+    "Connecting to Google Drive...";
 
-  document.getElementById("userInfo").textContent =
-    "Logged in as: " + data.email;
+  const tokenClient =
+    google.accounts.oauth2.initTokenClient({
 
-  // Ask Google for Drive permission
-  requestDriveAccess();
-}
+      client_id: CLIENT_ID,
 
+      scope: DRIVE_SCOPE,
 
-function requestDriveAccess() {
+      callback: async function(tokenResponse) {
 
-  const tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: CLIENT_ID,
-    scope: SCOPES,
+        if (tokenResponse.error) {
 
-    callback: function(response) {
+          showError(
+            "Google authorization failed: " +
+            tokenResponse.error
+          );
 
-      if (response.error) {
-        document.getElementById("status").textContent =
-          "Google Drive permission was not granted.";
-        return;
+          return;
+        }
+
+        accessToken =
+          tokenResponse.access_token;
+
+        loginSection.style.display =
+          "none";
+
+        app.style.display =
+          "block";
+
+        statusBox.textContent =
+          "Connected to Google Drive.";
+
+        try {
+
+          await getOrCreateFolder();
+
+          await loadVideos();
+
+        } catch (error) {
+
+          showError(error.message);
+
+        }
+
       }
 
-      accessToken = response.access_token;
+    });
 
-      document.getElementById("loginSection").style.display = "none";
-      document.getElementById("app").style.display = "block";
-
-      document.getElementById("status").textContent =
-        "Connected to Google Drive.";
-
-      initializeDrive();
-    }
-  });
 
   tokenClient.requestAccessToken({
     prompt: "consent"
@@ -178,128 +261,80 @@ function requestDriveAccess() {
 }
 
 
-/* =========================
-   DRIVE FOLDER
-========================= */
+/* =====================================================
+   GET / CREATE FOLDER
+===================================================== */
 
-async function initializeDrive() {
+async function getOrCreateFolder() {
 
-  try {
+  const query =
+    "name = '" +
+    FOLDER_NAME +
+    "' " +
+    "and mimeType = 'application/vnd.google-apps.folder' " +
+    "and trashed = false";
 
-    const query =
-      "name = 'Maria Video Vault' " +
-      "and mimeType = 'application/vnd.google-apps.folder' " +
-      "and trashed = false";
+  const url =
+    "https://www.googleapis.com/drive/v3/files?" +
+    new URLSearchParams({
 
-    const response = await fetch(
-      "https://www.googleapis.com/drive/v3/files?" +
-      new URLSearchParams({
-        q: query,
-        fields: "files(id,name)",
-        spaces: "drive"
-      }),
-      {
-        headers: {
-          Authorization: "Bearer " + accessToken
-        }
+      q: query,
+
+      spaces: "drive",
+
+      fields: "files(id,name)"
+
+    });
+
+
+  const response =
+    await fetch(url, {
+
+      headers: {
+        Authorization:
+          "Bearer " + accessToken
       }
+
+    });
+
+
+  if (!response.ok) {
+
+    const text =
+      await response.text();
+
+    throw new Error(
+      "Folder search failed (" +
+      response.status +
+      "): " +
+      text
     );
-
-    const data = await response.json();
-
-    if (data.files && data.files.length > 0) {
-
-      folderId = data.files[0].id;
-
-    } else {
-
-      const createResponse = await fetch(
-        "https://www.googleapis.com/drive/v3/files",
-        {
-          method: "POST",
-
-          headers: {
-            Authorization: "Bearer " + accessToken,
-            "Content-Type": "application/json"
-          },
-
-          body: JSON.stringify({
-            name: "Maria Video Vault",
-            mimeType: "application/vnd.google-apps.folder"
-          })
-        }
-      );
-
-      const folder = await createResponse.json();
-
-      folderId = folder.id;
-    }
-
-    loadVideos();
-
-  } catch (error) {
-
-    console.error(error);
-
-    document.getElementById("status").textContent =
-      "Could not connect to Google Drive.";
   }
-}
 
 
-/* =========================
-   UPLOAD
-========================= */
-
-document.getElementById("uploadBtn").onclick =
-  uploadVideo;
+  const data =
+    await response.json();
 
 
-async function uploadVideo() {
+  if (
+    data.files &&
+    data.files.length > 0
+  ) {
 
-  const input = document.getElementById("fileInput");
+    folderId =
+      data.files[0].id;
 
-  if (!input.files.length) {
-
-    alert("Choose a video first.");
     return;
   }
 
-  const file = input.files[0];
 
-  if (!accessToken || !folderId) {
+  /* CREATE FOLDER */
 
-    alert("Please sign in first.");
-    return;
-  }
-
-  const status =
-    document.getElementById("status");
-
-  const progress =
-    document.getElementById("progress");
-
-  status.textContent =
-    "Starting upload...";
-
-  progress.value = 0;
-
-  try {
-
-    /* Create resumable upload session */
-
-    const metadata = {
-
-      name: file.name,
-
-      mimeType: file.type || "video/mp4",
-
-      parents: [folderId]
-    };
-
-    const sessionResponse = await fetch(
-      "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
+  const createResponse =
+    await fetch(
+      "https://www.googleapis.com/drive/v3/files",
       {
+
         method: "POST",
 
         headers: {
@@ -308,417 +343,607 @@ async function uploadVideo() {
             "Bearer " + accessToken,
 
           "Content-Type":
-            "application/json",
+            "application/json"
 
-          "X-Upload-Content-Type":
-            file.type || "application/octet-stream",
-
-          "X-Upload-Content-Length":
-            file.size
         },
 
-        body: JSON.stringify(metadata)
+        body: JSON.stringify({
+
+          name:
+            FOLDER_NAME,
+
+          mimeType:
+            "application/vnd.google-apps.folder"
+
+        })
+
       }
     );
 
-    const uploadUrl =
-      sessionResponse.headers.get("Location");
 
-    if (!uploadUrl) {
+  if (!createResponse.ok) {
 
-      throw new Error(
-        "Could not create upload session."
-      );
-    }
+    const text =
+      await createResponse.text();
 
-
-    /* Upload in 8 MB chunks */
-
-    const chunkSize =
-      8 * 1024 * 1024;
-
-    let start = 0;
-
-    while (start < file.size) {
-
-      const end =
-        Math.min(
-          start + chunkSize,
-          file.size
-        );
-
-      const chunk =
-        file.slice(start, end);
-
-      const response =
-        await fetch(uploadUrl, {
-
-          method: "PUT",
-
-          headers: {
-
-            "Content-Length":
-              chunk.size,
-
-            "Content-Range":
-              `bytes ${start}-${end - 1}/${file.size}`
-          },
-
-          body: chunk
-        });
+    throw new Error(
+      "Could not create folder (" +
+      createResponse.status +
+      "): " +
+      text
+    );
+  }
 
 
-      if (
-        response.status === 200 ||
-        response.status === 201
-      ) {
+  const folder =
+    await createResponse.json();
 
+  folderId =
+    folder.id;
+}
+
+
+/* =====================================================
+   UPLOAD BUTTON
+===================================================== */
+
+document
+  .getElementById("uploadBtn")
+  .addEventListener(
+    "click",
+    uploadVideo
+  );
+
+
+/* =====================================================
+   UPLOAD VIDEO
+===================================================== */
 
 async function uploadVideo() {
 
-  const input = document.getElementById("fileInput");
-  const status = document.getElementById("status");
-  const progress = document.getElementById("progress");
+  const input =
+    document.getElementById("fileInput");
 
   if (!input.files.length) {
-    alert("Choose a video first.");
+
+    alert(
+      "Choose a video first."
+    );
+
     return;
   }
+
 
   if (!accessToken || !folderId) {
-    alert("Please sign in first.");
+
+    alert(
+      "Please sign in first."
+    );
+
     return;
   }
 
-  const file = input.files[0];
 
-  status.textContent = "Starting upload...";
+  const file =
+    input.files[0];
+
+
   progress.value = 0;
+
+  statusBox.textContent =
+    "Creating Google Drive upload session...";
+
 
   try {
 
+    /* ---------------------------------------------
+       STEP 1 — CREATE RESUMABLE SESSION
+    --------------------------------------------- */
+
     const metadata = {
-      name: file.name,
-      mimeType: file.type || "application/octet-stream",
-      parents: [folderId]
+
+      name:
+        file.name,
+
+      mimeType:
+        file.type ||
+        "application/octet-stream",
+
+      parents:
+        [folderId]
+
     };
 
-    const response = await fetch(
-      "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
+
+    const sessionResponse =
+      await fetch(
+        "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
+        {
+
+          method: "POST",
+
+          headers: {
+
+            Authorization:
+              "Bearer " + accessToken,
+
+            "Content-Type":
+              "application/json; charset=UTF-8",
+
+            "X-Upload-Content-Type":
+              file.type ||
+              "application<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>Maria Video Vault</title>
+
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: Arial, sans-serif;
+      background: #f4f4f4;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: auto;
+      background: white;
+      padding: 25px;
+      border-radius: 16px;
+      box-shadow: 0 4px 20px rgba(0,0,0,.08);
+    }
+
+    h1 {
+      text-align: center;
+    }
+
+    button {
+      border: 0;
+      border-radius: 8px;
+      padding: 11px 18px;
+      margin: 5px;
+      cursor: pointer;
+      font-size: 15px;
+    }
+
+    #uploadBtn {
+      background: #222;
+      color: white;
+    }
+
+    #refreshBtn {
+      background: #ddd;
+    }
+
+    .video {
+      background: #f1f1f1;
+      padding: 15px;
+      margin: 12px 0;
+      border-radius: 10px;
+    }
+
+    .video button {
+      background: white;
+    }
+
+    #status {
+      margin: 15px 0;
+      font-weight: bold;
+      word-break: break-word;
+    }
+
+    progress {
+      width: 100%;
+      height: 20px;
+    }
+
+    #app {
+      display: none;
+    }
+
+    #fileInput {
+      margin: 20px 0;
+      max-width: 100%;
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <h1>🎥 Maria Video Vault</h1>
+
+  <!-- LOGIN -->
+
+  <div id="loginSection">
+
+    <p>
+      Sign in with Google to access your Google Drive videos.
+    </p>
+
+    <div
+      id="g_id_onload"
+      data-client_id="687022968022-v5l47s84jtjgj0se3dp10b995t4q4doe.apps.googleusercontent.com"
+      data-callback="googleLogin"
+      data-auto_prompt="false">
+    </div>
+
+    <div
+      class="g_id_signin"
+      data-type="standard"
+      data-size="large"
+      data-theme="outline">
+    </div>
+
+  </div>
+
+
+  <!-- APP -->
+
+  <div id="app">
+
+    <p id="userInfo"></p>
+
+    <hr>
+
+    <h2>Upload Video</h2>
+
+    <input
+      id="fileInput"
+      type="file"
+      accept="video/*">
+
+    <br>
+
+    <button id="uploadBtn">
+      Upload Video
+    </button>
+
+    <progress
+      id="progress"
+      value="0"
+      max="100">
+    </progress>
+
+    <div id="status">
+      Waiting...
+    </div>
+
+    <hr>
+
+    <h2>My Videos</h2>
+
+    <button id="refreshBtn">
+      🔄 Refresh
+    </button>
+
+    <div id="videoList">
+      Loading...
+    </div>
+
+  </div>
+
+</div>
+
+
+<script>
+
+/* =====================================================
+   SETTINGS
+===================================================== */
+
+const CLIENT_ID =
+  "687022968022-v5l47s84jtjgj0se3dp10b995t4q4doe.apps.googleusercontent.com";
+
+const DRIVE_SCOPE =
+  "https://www.googleapis.com/auth/drive.file";
+
+const FOLDER_NAME =
+  "Maria Video Vault";
+
+let accessToken = null;
+let folderId = null;
+
+
+/* =====================================================
+   ELEMENTS
+===================================================== */
+
+const loginSection =
+  document.getElementById("loginSection");
+
+const app =
+  document.getElementById("app");
+
+const statusBox =
+  document.getElementById("status");
+
+const progress =
+  document.getElementById("progress");
+
+const videoList =
+  document.getElementById("videoList");
+
+
+/* =====================================================
+   GOOGLE LOGIN
+===================================================== */
+
+function googleLogin(response) {
+
+  statusBox.textContent =
+    "Connecting to Google Drive...";
+
+  const tokenClient =
+    google.accounts.oauth2.initTokenClient({
+
+      client_id: CLIENT_ID,
+
+      scope: DRIVE_SCOPE,
+
+      callback: async function(tokenResponse) {
+
+        if (tokenResponse.error) {
+
+          showError(
+            "Google authorization failed: " +
+            tokenResponse.error
+          );
+
+          return;
+        }
+
+        accessToken =
+          tokenResponse.access_token;
+
+        loginSection.style.display =
+          "none";
+
+        app.style.display =
+          "block";
+
+        statusBox.textContent =
+          "Connected to Google Drive.";
+
+        try {
+
+          await getOrCreateFolder();
+
+          await loadVideos();
+
+        } catch (error) {
+
+          showError(error.message);
+
+        }
+
+      }
+
+    });
+
+
+  tokenClient.requestAccessToken({
+    prompt: "consent"
+  });
+}
+
+
+/* =====================================================
+   GET / CREATE FOLDER
+===================================================== */
+
+async function getOrCreateFolder() {
+
+  const query =
+    "name = '" +
+    FOLDER_NAME +
+    "' " +
+    "and mimeType = 'application/vnd.google-apps.folder' " +
+    "and trashed = false";
+
+  const url =
+    "https://www.googleapis.com/drive/v3/files?" +
+    new URLSearchParams({
+
+      q: query,
+
+      spaces: "drive",
+
+      fields: "files(id,name)"
+
+    });
+
+
+  const response =
+    await fetch(url, {
+
+      headers: {
+        Authorization:
+          "Bearer " + accessToken
+      }
+
+    });
+
+
+  if (!response.ok) {
+
+    const text =
+      await response.text();
+
+    throw new Error(
+      "Folder search failed (" +
+      response.status +
+      "): " +
+      text
+    );
+  }
+
+
+  const data =
+    await response.json();
+
+
+  if (
+    data.files &&
+    data.files.length > 0
+  ) {
+
+    folderId =
+      data.files[0].id;
+
+    return;
+  }
+
+
+  /* CREATE FOLDER */
+
+  const createResponse =
+    await fetch(
+      "https://www.googleapis.com/drive/v3/files",
       {
+
         method: "POST",
 
         headers: {
-          "Authorization": "Bearer " + accessToken,
-          "Content-Type": "application/json",
-          "X-Upload-Content-Type":
-            file.type || "application/octet-stream",
-          "X-Upload-Content-Length":
-            String(file.size)
+
+          Authorization:
+            "Bearer " + accessToken,
+
+          "Content-Type":
+            "application/json"
+
         },
 
-        body: JSON.stringify(metadata)
+        body: JSON.stringify({
+
+          name:
+            FOLDER_NAME,
+
+          mimeType:
+            "application/vnd.google-apps.folder"
+
+        })
+
       }
     );
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(
-        "Google Drive error " +
-        response.status +
-        ": " +
-        errorText
-      );
-    }
 
-    const uploadUrl = response.headers.get("Location");
+  if (!createResponse.ok) {
 
-    if (!uploadUrl) {
-      throw new Error(
-        "Google did not return an upload URL."
-      );
-    }
+    const text =
+      await createResponse.text();
 
-    const chunkSize = 8 * 1024 * 1024;
-
-    let start = 0;
-
-    while (start < file.size) {
-
-      const end =
-        Math.min(start + chunkSize, file.size);
-
-      const chunk = file.slice(start, end);
-
-      const uploadResponse = await fetch(
-        uploadUrl,
-        {
-          method: "PUT",
-
-          headers: {
-            "Content-Length": String(chunk.size),
-            "Content-Range":
-              `bytes ${start}-${end - 1}/${file.size}`
-          },
-
-          body: chunk
-        }
-      );
-
-      if (
-        uploadResponse.status === 200 ||
-        uploadResponse.status === 201
-      ) {
-
-        progress.value = 100;
-        status.textContent =
-          "✅ Upload complete!";
-
-        await loadVideos();
-        return;
-      }
-
-      if (uploadResponse.status === 308) {
-
-        const range =
-          uploadResponse.headers.get("Range");
-
-        if (range) {
-          start =
-            parseInt(range.split("-")[1]) + 1;
-        } else {
-          start = end;
-        }
-
-        progress.value =
-          Math.round((start / file.size) * 100);
-
-        status.textContent =
-          `Uploading... ${progress.value}%`;
-
-      } else {
-
-        const errorText =
-          await uploadResponse.text();
-
-        throw new Error(
-          "Upload error " +
-          uploadResponse.status +
-          ": " +
-          errorText
-        );
-      }
-    }
-
-  } catch (error) {
-
-    console.error(error);
-
-    status.textContent =
-      "❌ Upload failed: " +
-      error.message;
-  }
-}
-
-/* =========================
-   LIST VIDEOS
-========================= */
-
-async function loadVideos() {
-
-  if (!accessToken || !folderId)
-    return;
-
-  const list =
-    document.getElementById("videoList");
-
-  list.innerHTML =
-    "Loading videos...";
-
-  try {
-
-    const query =
-      `'${folderId}' in parents ` +
-      `and trashed = false ` +
-      `and mimeType contains 'video/'`;
-
-    const response =
-      await fetch(
-        "https://www.googleapis.com/drive/v3/files?" +
-        new URLSearchParams({
-
-          q: query,
-
-          fields:
-            "files(id,name,size,webViewLink,createdTime)",
-
-          orderBy:
-            "createdTime desc"
-        }),
-
-        {
-          headers: {
-            Authorization:
-              "Bearer " + accessToken
-          }
-        }
-      );
-
-    const data =
-      await response.json();
-
-    list.innerHTML = "";
-
-    if (
-      !data.files ||
-      data.files.length === 0
-    ) {
-
-      list.innerHTML =
-        "<p>No videos yet.</p>";
-
-      return;
-    }
-
-
-    data.files.forEach(file => {
-
-      const div =
-        document.createElement("div");
-
-      div.className =
-        "video";
-
-      const size =
-        file.size
-          ? formatBytes(file.size)
-          : "";
-
-      div.innerHTML = `
-
-        <strong>${escapeHtml(file.name)}</strong>
-
-        <br>
-
-        <small>${size}</small>
-
-        <br>
-
-        <button
-          onclick="openVideo('${file.id}')">
-          ▶ Open
-        </button>
-
-        <button
-          onclick="deleteVideo('${file.id}')">
-          🗑 Delete
-        </button>
-      `;
-
-      list.appendChild(div);
-    });
-
-  } catch (error) {
-
-    console.error(error);
-
-    list.innerHTML =
-      "Could not load videos.";
-  }
-}
-
-
-/* =========================
-   OPEN VIDEO
-========================= */
-
-async function openVideo(fileId) {
-
-  const url =
-    `https://drive.google.com/file/d/${fileId}/view`;
-
-  window.open(url, "_blank");
-}
-
-
-/* =========================
-   DELETE VIDEO
-========================= */
-
-async function deleteVideo(fileId) {
-
-  if (
-    !confirm(
-      "Delete this video from Google Drive?"
-    )
-  ) {
-    return;
-  }
-
-  try {
-
-    await fetch(
-      `https://www.googleapis.com/drive/v3/files/${fileId}`,
-      {
-        method: "DELETE",
-
-        headers: {
-          Authorization:
-            "Bearer " + accessToken
-        }
-      }
+    throw new Error(
+      "Could not create folder (" +
+      createResponse.status +
+      "): " +
+      text
     );
+  }
 
-    loadVideos();
 
-  } catch (error) {
+  const folder =
+    await createResponse.json();
 
-    console.error(error);
+  folderId =
+    folder.id;
+}
+
+
+/* =====================================================
+   UPLOAD BUTTON
+===================================================== */
+
+document
+  .getElementById("uploadBtn")
+  .addEventListener(
+    "click",
+    uploadVideo
+  );
+
+
+/* =====================================================
+   UPLOAD VIDEO
+===================================================== */
+
+async function uploadVideo() {
+
+  const input =
+    document.getElementById("fileInput");
+
+  if (!input.files.length) {
 
     alert(
-      "Could not delete the video."
+      "Choose a video first."
     );
+
+    return;
   }
-}
 
 
-/* =========================
-   HELPERS
-========================= */
+  if (!accessToken || !folderId) {
 
-function formatBytes(bytes) {
-
-  if (!bytes) return "";
-
-  const units =
-    ["Bytes", "KB", "MB", "GB", "TB"];
-
-  const i =
-    Math.floor(
-      Math.log(bytes) /
-      Math.log(1024)
+    alert(
+      "Please sign in first."
     );
 
-  return (
-    (bytes / Math.pow(1024, i))
-      .toFixed(2)
-    + " "
-    + units[i]
-  );
-}
+    return;
+  }
 
 
-function escapeHtml(text) {
+  const file =
+    input.files[0];
 
-  const div =
-    document.createElement("div");
 
-  div.textContent = text;
+  progress.value = 0;
 
-  return div.innerHTML;
-}
+  statusBox.textContent =
+    "Creating Google Drive upload session...";
 
-</script>
 
-</body>
-</html>
+  try {
+
+    /* ---------------------------------------------
+       STEP 1 — CREATE RESUMABLE SESSION
+    --------------------------------------------- */
+
+    const metadata = {
+
+      name:
+        file.name,
+
+      mimeType:
+        file.type ||
+        "application/octet-stream",
+
+      parents:
+        [folderId]
+
+    };
+
+
+    const sessionResponse =
+      await fetch(
+        "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
+        {
+
+          method: "POST",
+
+          headers: {
+
+            Authorization:
+              "Bearer " + accessToken,
+
+            "Content-Type":
+              "application/json; charset=UTF-8",
+
+            "X-Upload-Content-Type":
+              file.type ||
+              "application
